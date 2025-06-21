@@ -9,11 +9,22 @@ def fetch_bitquery(mint):
         'query': f'''{{
           solana {{
             token(mintAddress: "{mint}") {{ marketCap }}
-            tokenHolders(limit:10, tokenAddress:"{mint}"){{amount}}
+	            tokenHolders(limit:10, tokenAddress:"{mint}"){{amount}}
           }}
         }}'''
     }
-    r = requests.post("https://graphql.bitquery.io/", json=query, headers={'X-API-KEY': BITQ}).json()
+    r = requests.post("https://graphql.bitquery.io/", json=query, headers={'X-API-KEY': BITQ})
+try:
+    data = r.json()
+except Exception as e:
+    print("❌ Bitquery JSON decode failed:", e)
+    print("↪️ Raw response text:", r.text)
+    return 0, 0  # fail-safe fallback
+
+sol = data.get("data", {}).get("solana", {})
+mc = float(sol.get("token", [{}])[0].get("marketCap") or 0)
+holders_amt = sum(float(h['amount']) for h in sol.get("tokenHolders", []))
+return mc, holders_amt
     sol = r.get("data", {}).get("solana", {})
     mc = float(sol.get("token", [{}])[0].get("marketCap") or 0)
     holders_amt = sum(float(h['amount']) for h in sol.get("tokenHolders", []))
