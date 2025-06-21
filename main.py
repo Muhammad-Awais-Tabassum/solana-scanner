@@ -3,7 +3,7 @@ from scanner.monitor import analyze
 # Manual test token
 test_token = {
     'name': 'ManualTest',
-    'address': 'kWBjUhuK1cH495LmNdsFEdgmduWPsC6DK7eEEX8pump'
+    'address': '9FYxGMwfnQKdLcuW29t6Fd7ZwhQQVD3K12MdZUp34hps',
     'deployer': '2VPh8q'
 }
 
