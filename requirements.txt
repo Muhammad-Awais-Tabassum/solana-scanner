@@ -1,0 +1,7 @@
+aiohttp==3.9.3
+aiolimiter==1.0.0
+async-retrying==0.1.1
+backoff==2.2.1
+python-dotenv==1.0.0
+pandas==2.1.4
+matplotlib==3.8.2
