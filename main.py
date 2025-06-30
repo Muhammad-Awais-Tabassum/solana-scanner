@@ -1,67 +1,87 @@
+# main.py
+
 import asyncio
-from scanner import (
-    pumpfun_scanner,
-    deployer_check,
-    holder_analysis,
-    twitter_sentiment,
-    confidence_score,
-    telegram_notifier,
-    blacklist,
-    wallet_inspector,
-    async_executor,
-    birdeye_scanner,
-    shyft_inspector,
-)
-from config import TELEGRAM_CHAT_ID
+from filters.initial_checks import run_initial_checks
+from filters.graduated_checks import analyze_graduated_tokens
+from filters.trending_checks import fetch_trending_tokens
+from filters.extra_heuristics import apply_extra_heuristics
+
+from analyzer.deployer_history import check_deployer_history
+from analyzer.wallet_analysis import analyze_wallets
+from analyzer.sentiment import analyze_sentiment
+from analyzer.clustering import detect_alt_wallets
+from analyzer.price_predictor import predict_token_status
+
+from notifier.telegram import send_telegram_alert
+from utils.api_helpers import fetch_token_metadata
+from utils.visualizer import generate_price_chart
+from config import ENABLE_GRADUATED, ENABLE_TRENDING
+
 
 async def process_token(token):
-    contract = token.get("contract")
-    if not contract:
+    # Fetch metadata and basic token info
+    metadata = await fetch_token_metadata(token["mint"])
+    if not metadata:
         return
 
-    # Skip if already blacklisted
-    if blacklist.is_blacklisted(token["deployer"]):
+    # Deployer check
+    deployer_passed, deployer_data = await check_deployer_history(token["deployer"])
+    if not deployer_passed:
         return
 
-    # Run core checks
-    deployer_ok = await deployer_check.check_deployer_history(token["deployer"])
-    if not deployer_ok:
-        blacklist.add_to_blacklist(token["deployer"])
+    # Wallet clustering
+    alt_wallets = await detect_alt_wallets(token["deployer"])
+
+    # Wallet & holder analysis
+    holder_passed, holder_details = await analyze_wallets(token["mint"], token["deployer"])
+    if not holder_passed:
         return
 
-    holders_ok = await holder_analysis.analyze_holders(contract)
-    if not holders_ok:
-        blacklist.add_to_blacklist(token["deployer"])
+    # Sentiment analysis
+    sentiment = await analyze_sentiment(token["mint"])
+
+    # Heuristics filtering
+    if not apply_extra_heuristics(token["mint"]):
         return
 
-    sentiment = await twitter_sentiment.search_token_mentions(contract)
-    shyft_data = await shyft_inspector.get_wallet_data(token["deployer"])
-    confidence = confidence_score.compute(token, sentiment, shyft_data)
+    # Revival prediction
+    is_recovering, probability = predict_token_status(token["mint"])
 
-    if confidence >= 0.75:
-        summary = f"""
-🚀 *New Meme Coin Opportunity* 🚀
-Contract: `{contract}`
-Confidence: *{confidence:.2f}*
-Deployer: `{token['deployer']}`
-Socials: {token.get("socials", ['N/A'])}
-Volume: {token.get('volume', 0)}
-Market Cap: {token.get('market_cap', 0)}
-Holders: {token.get('holders', 0)}
-Mentioned in {sentiment['mention_count']} tweets.
+    # Visualization
+    chart_path = await generate_price_chart(token["mint"])
 
-#Solana #MemeCoin
-        """.strip()
-        await telegram_notifier.send_message(TELEGRAM_CHAT_ID, summary)
+    # Format and send to Telegram
+    summary = {
+        "token": token,
+        "metadata": metadata,
+        "deployer": deployer_data,
+        "holders": holder_details,
+        "alt_wallets": alt_wallets,
+        "sentiment": sentiment,
+        "revival_prediction": is_recovering,
+        "probability": probability
+    }
+
+    await send_telegram_alert(summary, chart_path)
+
 
 async def main():
-    print("🔍 Scanning Pump.fun tokens...")
-    pumpfun_tokens = await pumpfun_scanner.fetch_new_tokens()
-    await async_executor.run_concurrently([process_token(t) for t in pumpfun_tokens])
+    print("📈 Scanning PumpFun New Tokens...")
+    tokens = await run_initial_checks()
 
-    print("🔥 Scanning trending tokens (Birdeye)...")
-    trending = await birdeye_scanner.get_trending_tokens()
-    await async_executor.run_concurrently([process_token(t) for t in trending])
+    if ENABLE_GRADUATED:
+        print("🎓 Scanning Graduated Tokens...")
+        tokens += await analyze_graduated_tokens()
+
+    if ENABLE_TRENDING:
+        print("🔥 Scanning Trending Tokens...")
+        tokens += await fetch_trending_tokens()
+
+    print(f"✅ {len(tokens)} tokens passed basic filters.")
+
+    tasks = [process_token(token) for token in tokens]
+    await asyncio.gather(*tasks)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
