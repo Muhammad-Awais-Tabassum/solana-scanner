@@ -1,4 +1,4 @@
-prcessimport asyncio
+import asyncio
 from scanner import (
     pumpfun_scanner,
     deployer_check,
