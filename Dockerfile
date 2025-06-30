@@ -1,27 +1,17 @@
-# Base image
+# Dockerfile
 FROM python:3.11-slim
 
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+# Set working directory
+WORKDIR /app
 
-    # Set working directory
-    WORKDIR /app
+# Copy everything
+COPY . .
 
-    # Install system dependencies
-    RUN apt-get update && apt-get install -y \
-        build-essential \
-            curl \
-                && rm -rf /var/lib/apt/lists/*
+# Install dependencies
+RUN pip install --no-cache-dir -r requirements.txt
 
-                # Copy project files
-                COPY . .
+# Ensure Python finds local modules
+ENV PYTHONPATH="${PYTHONPATH}:/app"
 
-                # Install Python dependencies
-                RUN pip install --no-cache-dir -r requirements.txt
-
-                # Optional: Load environment variables if using .env
-                # RUN pip install python-dotenv
-
-                # Run the scanner
-                CMD ["python", "main.py"]
+# Run your scanner
+CMD ["python", "main.py"]
