@@ -2,7 +2,30 @@ import aiohttp
 import asyncio
 from config import HELIUS_API_KEY, HELIUS_BASE_URL, INITIAL_FILTERS
 
+# filters/initial_checks.py
 
+from config import INITIAL_FILTERS
+import requests
+
+def run_initial_checks(token_data: dict) -> bool:
+    """
+    Apply basic filtering rules to new tokens.
+    """
+    try:
+        if token_data.get("liquidity", 0) < INITIAL_FILTERS["min_liquidity"]:
+            return False
+        if token_data.get("deployer_token_count", 0) > INITIAL_FILTERS["max_deployer_tokens"]:
+            return False
+        if token_data.get("age_minutes", 0) < INITIAL_FILTERS["min_age_minutes"]:
+            return False
+        if token_data.get("market_cap", 0) > INITIAL_FILTERS["max_market_cap"]:
+            return False
+        if token_data.get("volume_5m", 0) < INITIAL_FILTERS["min_volume_5m"]:
+            return False
+        return True
+    except Exception as e:
+        print(f"[initial_checks] Error in check: {e}")
+        return False
 async def fetch_new_tokens():
     url = f"{HELIUS_BASE_URL}tokens?api-key={HELIUS_API_KEY}"
     async with aiohttp.ClientSession() as session:
