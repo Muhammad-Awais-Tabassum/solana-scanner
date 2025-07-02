@@ -78,7 +78,7 @@ async def check_graduated_tokens():
     passed = [t for t in tokens if apply_graduated_filters(t)]
     print(f"[INFO] Graduated Tokens Passed Filters: {len(passed)}")
     return passed
-
+analyze_graduated_tokens = check_graduated_tokens
 
 # For testing
 if __name__ == "__main__":
