@@ -65,5 +65,5 @@ async def get_token_metadata(token_address: str) -> dict:
 
 
 # ---------- Simple Rate Limit Delay ----------
-async def rate_limit_delay():
+async def rate_limited_request():
     await asyncio.sleep(0.2)  # 5 requests/sec (Helius and Birdeye safe zone)
