@@ -87,7 +87,10 @@ async def analyze_twitter(contract_address):
         "tweet_count": len(tweets)
     }
 
-
+async def analyze_sentiment(contract_address):
+    result = await analyze_twitter(contract_address)
+    return result["sentiment"]
+    
 # Example usage
 if __name__ == "__main__":
     import asyncio
