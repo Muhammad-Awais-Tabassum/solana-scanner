@@ -6,7 +6,7 @@ import json
 with open("data/wallet_tags.json", "r") as f:
     WALLET_TAGS = json.load(f)
 
-def is_sniper(wallet: str) -> bool:
+def is_sniper_wallet(wallet: str) -> bool:
     return WALLET_TAGS.get(wallet, "") == "sniper"
 
 def is_insider(wallet: str) -> bool:
