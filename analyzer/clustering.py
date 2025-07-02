@@ -7,7 +7,7 @@ from utils.api_helpers import rate_limited_request
 HELIUS_API_KEY = os.getenv("HELIUS_API_KEY")
 CLUSTER_URL = f"https://api.helius.xyz/v0/addresses/cluster?api-key={HELIUS_API_KEY}"
 
-async def get_linked_wallets(deployer_address: str) -> list:
+async def detect_alt_wallets(deployer_address: str) -> list:
     """
     Fetches wallets that are clustered with the deployer using Helius Enhanced Address Labels API.
 
