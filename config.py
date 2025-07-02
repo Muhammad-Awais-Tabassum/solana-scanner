@@ -28,7 +28,7 @@ MIN_HOLDERS_NEW = int(os.getenv("MIN_HOLDERS_NEW", 5))
 MAX_DEV_HOLDING_NEW = float(os.getenv("MAX_DEV_HOLDING_NEW", 15))
 MIN_BUYS_NEW = int(os.getenv("MIN_BUYS_NEW", 5))
 
-NEW_TOKEN_FILTERS = {
+INITIAL_FILTERS = {
     "min_marketcap": MIN_MARKETCAP_NEW,
     "min_volume": MIN_VOLUME_NEW,
     "min_holders": MIN_HOLDERS_NEW,
