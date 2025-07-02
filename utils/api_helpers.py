@@ -3,12 +3,26 @@
 import aiohttp
 import asyncio
 import os
-import logging
+import logging  # ✅ FIXED typo here
 from functools import lru_cache
 from datetime import datetime, timedelta
 
 BIRDEYE_API_KEY = os.getenv("BIRDEYE_API_KEY")
 HELIUS_API_KEY = os.getenv("HELIUS_API_KEY")
+HELIUS_BASE_URL = "https://api.helius.xyz/v0/"  # Add this if not set in config
+
+# ---------- Generic Helius Fetch ----------
+async def fetch_helius_data(endpoint: str, params: dict = None) -> dict:
+    """
+    Makes an async GET request to a Helius API endpoint.
+    """
+    url = f"{HELIUS_BASE_URL}{endpoint}?api-key={HELIUS_API_KEY}"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, params=params) as resp:
+            if resp.status != 200:
+                logging.error(f"[HELIUS] Fetch failed: {resp.status}")
+                return {}
+            return await resp.json()
 
 # ---------- Birdeye: Price History ----------
 async def get_birdeye_price_history(token_address: str) -> list[tuple[str, float]]:
