@@ -1,4 +1,4 @@
-f# filters/extra_heuristics.py
+ filters/extra_heuristics.py
 
 from utils.api_helpers import get_token_holders, get_token_metadata
 import logging
