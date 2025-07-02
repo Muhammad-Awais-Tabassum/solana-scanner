@@ -6,6 +6,7 @@ load_dotenv()
 
 # 🔑 API Keys
 HELIUS_API_KEY = os.getenv("HELIUS_API_KEY")
+HELIUS_BASE_URL = os.getenv("HELIUS_BASE_URL", "https://api.helius.xyz/v0")
 BIRDEYE_API_KEY = os.getenv("BIRDEYE_API_KEY")
 SHYFT_API_KEY = os.getenv("SHYFT_API_KEY")
 TWITTER_BEARER_TOKEN = os.getenv("TWITTER_BEARER_TOKEN")
