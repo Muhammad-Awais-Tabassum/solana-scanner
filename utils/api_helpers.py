@@ -35,7 +35,7 @@ async def get_token_holders(token_address: str) -> list[dict]:
 
 
 # ---------- Birdeye: Token Price History ----------
-async def get_birdeye_price_history(token_address: str) -> list[tuple[str, float]]:
+async def fetch_price_history_birdeye(token_address: str) -> list[tuple[str, float]]:
     url = f"https://public-api.birdeye.so/defi/token_price_chart?address={token_address}&type=5m"
     headers = {"X-API-KEY": BIRDEYE_API_KEY}
 
