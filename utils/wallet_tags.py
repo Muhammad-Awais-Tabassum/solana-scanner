@@ -9,7 +9,7 @@ with open("data/wallet_tags.json", "r") as f:
 def is_sniper_wallet(wallet: str) -> bool:
     return WALLET_TAGS.get(wallet, "") == "sniper"
 
-def is_insider(wallet: str) -> bool:
+def is_insider_wallet(wallet: str) -> bool:
     return WALLET_TAGS.get(wallet, "") == "insider"
 
 def get_wallet_tag(wallet: str) -> str:
