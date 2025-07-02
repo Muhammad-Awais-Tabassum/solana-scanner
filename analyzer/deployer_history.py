@@ -13,7 +13,7 @@ async def get_deployer_tokens(deployer_address: str):
     data = await fetch_helius_data(url)
     return data.get("tokens", [])
 
-async def analyze_deployer_history(deployer_address: str) -> dict:
+async def check_deployer_history(deployer_address: str) -> dict:
     tokens = await get_deployer_tokens(deployer_address)
     
     total_tokens = len(tokens)
