@@ -1,4 +1,4 @@
-# filters/extra_heuristics.py
+f# filters/extra_heuristics.py
 
 from utils.api_helpers import get_token_holders, get_token_metadata
 import logging
@@ -44,3 +44,24 @@ def check_initial_supply_distribution(holders: list[dict]) -> bool:
     """
     big_holders = [h for h in holders if h["percentage"] > 8]
     return len(big_holders) > 2
+
+# ✅ Wrapper function for use in main.py
+def apply_extra_heuristics(token: dict) -> bool:
+    address = token.get("address")
+    if not address:
+        return False
+
+    holders = get_token_holders(address)
+    if not holders:
+        return False
+
+    if check_top_holders_concentration(address):
+        return False
+
+    if detect_fake_volume_or_mc(address):
+        return False
+
+    if check_initial_supply_distribution(holders):
+        return False
+
+    return True
