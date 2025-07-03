@@ -5,8 +5,12 @@ import asyncio
 import os
 import logging
 from functools import lru_cache
+import requests
+from datetime import datetime, timedelta
+from dotenv import load_dotenv
 
-BIRDEYE_API_KEY = os.getenv("BIRDEYE_API_KEY")
+load_dotenv()
+HELIUS_API_KEY = os.getenv("HELIUS_API_KEY")YE_API_KEY = os.getenv("BIRDEYE_API_KEY")
 HELIUS_API_KEY = os.getenv("HELIUS_API_KEY")
 
 
@@ -64,6 +68,71 @@ async def get_token_metadata(token_address: str) -> dict:
     return {}
 
 
+def get_post_dump_buyers(token_address: str, dump_time: datetime = None) -> dict:
+    """
+    Fetches new wallet buyers of a token post-dump using Helius API.
+    Filters for buys with 2–3 SOL.
+    """
+
+    # Safety check
+    if not dump_time:
+        dump_time = datetime.utcnow() - timedelta(minutes=30)  # fallback: last 30min
+
+    url = f"https://mainnet.helius-rpc.com/?api-key={HELIUS_API_KEY}"
+
+    headers = {
+        "Content-Type": "application/json"
+    }
+
+    # Helius: get token transfer history
+    payload = {
+        "jsonrpc": "2.0",
+        "id": "fetch-transfers",
+        "method": "searchTransactions",
+        "params": {
+            "query": {
+                "account": token_address,
+                "type": "transfer",
+            },
+            "options": {
+                "limit": 100,
+                "sort": "desc"
+            }
+        }
+    }
+
+    response = requests.post(url, json=payload, headers=headers)
+    if response.status_code != 200:
+        return {"count": 0, "avg_sol": 0.0}
+
+    txs = response.json().get("result", [])
+    buyers = {}
+    
+    for tx in txs:
+        ts = tx.get("timestamp")
+        if not ts or datetime.utcfromtimestamp(ts) < dump_time:
+            continue
+
+        # Only look at post-dump buys
+        transfers = tx.get("tokenTransfers", [])
+        for tr in transfers:
+            if tr.get("mint") != token_address:
+                continue
+
+            buyer = tr.get("toUserAccount")
+            sol_spent = tx.get("fee", 0) / 1e9  # fallback: use fee as rough SOL proxy
+
+            if buyer not in buyers:
+                buyers[buyer] = sol_spent
+            else:
+                buyers[buyer] += sol_spent
+
+    # Filter wallets spending 2–3 SOL
+    filtered = [amt for amt in buyers.values() if 2 <= amt <= 3]
+    count = len(filtered)
+    avg_sol = round(sum(filtered) / count, 4) if count else 0.0
+
+    return {"count": count, "avg_sol": avg_sol}
 # ---------- Simple Rate Limit Delay ----------
 async def rate_limited_request():
     await asyncio.sleep(0.2)  # 5 requests/sec (Helius and Birdeye safe zone)
