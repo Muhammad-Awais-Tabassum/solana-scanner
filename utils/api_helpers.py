@@ -10,8 +10,9 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
-HELIUS_API_KEY = os.getenv("HELIUS_API_KEY")YE_API_KEY = os.getenv("BIRDEYE_API_KEY")
 HELIUS_API_KEY = os.getenv("HELIUS_API_KEY")
+BIRDEYE_API_KEY = os.getenv("BIRDEYE_API_KEY")
+
 
 
 # ---------- Helius: Generic Fetcher ----------
