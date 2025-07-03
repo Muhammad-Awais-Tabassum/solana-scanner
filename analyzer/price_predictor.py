@@ -2,14 +2,14 @@ import os
 import pickle
 import numpy as np
 from datetime import datetime, timedelta
-from utils.api_helpers import fetch_price_history_birdeye
+from utils.api_helpers import fetch_price_history_birdeye, get_post_dump_buyers
 
 # Load model from root directory
 MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'token_revival_model.pkl')
 with open(MODEL_PATH, 'rb') as f:
     model = pickle.load(f)
 
-def extract_features(price_data: list[dict]) -> dict:
+def extract_features(token_address: str, price_data: list[dict]) -> dict:
     """
     Given Birdeye price history, extract revival features.
     """
@@ -23,7 +23,7 @@ def extract_features(price_data: list[dict]) -> dict:
     current_price = prices[-1]
     dip_percent = (ath - current_price) / ath * 100 if ath != 0 else 0
 
-    # Check last 5 min volume
+    # Last 5 min volume
     cutoff_time = datetime.utcnow() - timedelta(minutes=5)
     recent_prices = [
         point['value'] for point in price_data
@@ -31,11 +31,26 @@ def extract_features(price_data: list[dict]) -> dict:
     ]
     recent_volume = np.sum(recent_prices) if recent_prices else 0
 
+    # Slope (simple price recovery signal)
+    if len(prices) >= 5:
+        x = np.arange(len(prices))
+        slope = np.polyfit(x, prices, 1)[0]
+    else:
+        slope = 0
+
+    # Post-dump new wallet data (you need to implement this)
+    wallet_info = get_post_dump_buyers(token_address)
+    post_dump_new_buyers = wallet_info.get("count", 0)
+    avg_sol_spent = wallet_info.get("avg_sol", 0.0)
+
     return {
         'ath': ath,
         'current_price': current_price,
         'dip_percent': dip_percent,
-        'recent_volume': recent_volume
+        'recent_volume': recent_volume,
+        'post_dump_new_buyers': post_dump_new_buyers,
+        'avg_sol_spent': avg_sol_spent,
+        'price_recovery_slope': slope
     }
 
 def predict_token_status(token_address: str) -> str:
@@ -43,7 +58,7 @@ def predict_token_status(token_address: str) -> str:
     Predict whether token is reviving or dead using trained ML model.
     """
     price_data = fetch_price_history_birdeye(token_address, interval='1m', span='1h')
-    features = extract_features(price_data)
+    features = extract_features(token_address, price_data)
 
     if not features:
         return "unknown"
@@ -52,7 +67,10 @@ def predict_token_status(token_address: str) -> str:
         features['ath'],
         features['current_price'],
         features['dip_percent'],
-        features['recent_volume']
+        features['recent_volume'],
+        features['post_dump_new_buyers'],
+        features['avg_sol_spent'],
+        features['price_recovery_slope']
     ]).reshape(1, -1)
 
     prediction = model.predict(feature_vector)[0]
