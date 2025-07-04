@@ -12,7 +12,7 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")  # Channel or user ID
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 
 
-async def send_message(text: str, parse_mode="Markdown"):
+async def send_telegram_alert(text: str, parse_mode="Markdown"):
     """
     Sends a plain text message to the Telegram channel.
     """
@@ -51,4 +51,4 @@ async def send_photo_from_base64(image_base64: str, caption: str = ""):
 
 # Example usage (when testing standalone)
 if __name__ == "__main__":
-    asyncio.run(send_message("🚀 Test message from Solana Meme Scanner!"))
+    asyncio.run(send_telegram_alert("🚀 Test message from Solana Meme Scanner!"))
