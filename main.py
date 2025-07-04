@@ -44,8 +44,7 @@ async def process_token(token):
     if not apply_extra_heuristics(token["mint"]):
         return
 
-    # Revival prediction
-    is_recovering, probability = predict_token_status(token["mint"])
+    
 
     # Visualization
     chart_path = await generate_price_chart(token["mint"])
