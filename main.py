@@ -10,7 +10,7 @@ from analyzer.deployer_history import check_deployer_history
 from analyzer.wallet_analysis import analyze_wallets
 from analyzer.sentiment import analyze_sentiment
 from analyzer.clustering import detect_alt_wallets
-from analyzer.price_predictor import predict_token_status
+
 
 from notifier.telegram import send_telegram_alert
 from utils.api_helpers import fetch_token_metadata
