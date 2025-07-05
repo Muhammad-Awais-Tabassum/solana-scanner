@@ -15,7 +15,7 @@ from analyzer.clustering import detect_alt_wallets
 from notifier.telegram import send_telegram_alert
 from utils.api_helpers import get_token_metadata
 from utils.visualizer import plot_price_vs_time
-from config import ENABLE_GRADUATED, ENABLE_TRENDING
+from config import GRADUATED_FILTERS, TRENDING_FILTERS
 
 
 async def process_token(token):
@@ -68,11 +68,11 @@ async def main():
     print("📈 Scanning PumpFun New Tokens...")
     tokens = await run_initial_checks()
 
-    if ENABLE_GRADUATED:
+    if GRADUATED_FILTERS:
         print("🎓 Scanning Graduated Tokens...")
         tokens += await analyze_graduated_tokens()
 
-    if ENABLE_TRENDING:
+    if TRENDING_FILTERS:
         print("🔥 Scanning Trending Tokens...")
         tokens += await fetch_trending_tokens()
 
