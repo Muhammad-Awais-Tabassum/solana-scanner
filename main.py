@@ -14,7 +14,7 @@ from analyzer.clustering import detect_alt_wallets
 
 from notifier.telegram import send_telegram_alert
 from utils.api_helpers import get_token_metadata
-from utils.visualizer import generate_price_chart
+from utils.visualizer import plot_price_vs_time
 from config import ENABLE_GRADUATED, ENABLE_TRENDING
 
 
@@ -47,7 +47,7 @@ async def process_token(token):
     
 
     # Visualization
-    chart_path = await generate_price_chart(token["mint"])
+    chart_path = await plot_price_vs_time(token["mint"])
 
     # Format and send to Telegram
     summary = {
