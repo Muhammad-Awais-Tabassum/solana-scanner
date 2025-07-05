@@ -2,7 +2,7 @@ import aiohttp
 import asyncio
 from config import BIRDEYE_API_KEY, TRENDING_FILTERS
 
-BIRDEYE_TRENDING_URL = "https://public-api.birdeye.so/public/token/trending"
+BIRDEYE_TRENDING_URL = "https://public-api.birdeye.so/public/token/trending-token"
 
 
 async def fetch_trending_tokens():
