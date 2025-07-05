@@ -1,7 +1,7 @@
 # main.py
 
 import asyncio
-from filters.initial_checks import run_initial_checks
+from filters.initial_checks import check_new_tokens
 from filters.graduated_checks import analyze_graduated_tokens
 from filters.trending_checks import fetch_trending_tokens
 from filters.extra_heuristics import apply_extra_heuristics
@@ -66,7 +66,7 @@ async def process_token(token):
 
 async def main():
     print("📈 Scanning PumpFun New Tokens...")
-    tokens = await run_initial_checks()
+    tokens = await check_new_tokens()
 
     if GRADUATED_FILTERS:
         print("🎓 Scanning Graduated Tokens...")
