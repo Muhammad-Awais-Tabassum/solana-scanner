@@ -26,17 +26,27 @@ def run_initial_checks(token_data: dict) -> bool:
     except Exception as e:
         print(f"[initial_checks] Error in check: {e}")
         return False
+
+PUMPFUN_NEW_TOKENS_URL = "https://pump.fun/api/tokens"
+
 async def fetch_new_tokens():
-    url = f"{HELIUS_BASE_URL}tokens?api-key={HELIUS_API_KEY}"
     async with aiohttp.ClientSession() as session:
-        async with session.get(url) as resp:
+        async with session.get(PUMPFUN_NEW_TOKENS_URL) as resp:
             if resp.status != 200:
                 print(f"[ERROR] Failed to fetch tokens: {resp.status}")
                 return []
             data = await resp.json()
-            return data.get("tokens", [])
 
-
+            # Only keep tokens created in the last 10 minutes
+            cutoff = datetime.datetime.utcnow() - datetime.timedelta(minutes=10)
+            new_tokens = []
+            for token in data:
+                created_at = token.get("created_at")
+                if created_at:
+                    created_time = datetime.datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                    if created_time > cutoff:
+                        new_tokens.append(token)
+            return new_tokens
 def apply_filters(token):
     try:
         market_cap = token.get("marketCap", 0)
