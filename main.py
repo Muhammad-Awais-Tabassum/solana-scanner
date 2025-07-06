@@ -70,7 +70,10 @@ async def main():
 
     if GRADUATED_FILTERS:
         print("🎓 Scanning Graduated Tokens...")
-        tokens += await check_graduated_tokens()
+        graduated_tokens = await check_graduated_tokens()
+    for token in graduated_tokens:
+        token["source"] = "graduated"
+    tokens += graduated_tokens
 
     if TRENDING_FILTERS:
         print("🔥 Scanning Trending Tokens...")
