@@ -1,87 +1,112 @@
 import aiohttp
 import asyncio
-from datetime import datetime, timedelta
-from config import GRADUATED_FILTERS, HELIUS_API_KEY, HELIUS_BASE_URL
+from config import (
+    GRADUATED_FILTERS,
+    BIRDEYE_API_KEY,
+    SHYFT_API_KEY,
+)
+
+PUMPFUN_LAUNCHES = "https://pump.fun/api/launches"
+PUMPFUN_TOKEN_API = "https://pump.fun/api/token/"
+BIRDEYE_TOKEN_INFO = "https://public-api.birdeye.so/public/token/"
+SHYFT_METADATA_URL = "https://api.shyft.to/sol/v1/token/get_info?network=mainnet&token="
+
+HEADERS_BIRDEYE = {"X-API-KEY": BIRDEYE_API_KEY}
+HEADERS_SHYFT = {"x-api-key": SHYFT_API_KEY}
 
 
-async def fetch_graduated_tokens():
-    url = f"{HELIUS_BASE_URL}graduated-tokens?api-key={HELIUS_API_KEY}"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as resp:
-            if resp.status != 200:
-                print(f"[ERROR] Failed to fetch graduated tokens: {resp.status}")
-                return []
-            data = await resp.json()
-            return data.get("tokens", [])
+async def fetch_recent_pumpfun_tokens(session):
+    async with session.get(PUMPFUN_LAUNCHES) as resp:
+        if resp.status != 200:
+            print("[ERROR] Failed to fetch Pump.fun launches")
+            return []
+        data = await resp.json()
+        return [t["mint"] for t in data.get("launchedTokens", [])]
 
 
-def has_dipped_from_ath(token):
+async def is_graduated_pumpfun(session, mint):
+    async with session.get(PUMPFUN_TOKEN_API + mint) as resp:
+        return resp.status == 404
+
+
+async def get_birdeye_data(session, mint):
+    async with session.get(BIRDEYE_TOKEN_INFO + mint, headers=HEADERS_BIRDEYE) as resp:
+        if resp.status != 200:
+            return {}
+        data = await resp.json()
+        return data.get("data", {})
+
+
+async def get_token_metadata(session, mint):
+    async with session.get(SHYFT_METADATA_URL + mint, headers=HEADERS_SHYFT) as resp:
+        if resp.status != 200:
+            return {}
+        result = await resp.json()
+        return result.get("result", {})
+
+
+def apply_graduated_filters(birdeye_data, metadata):
     try:
-        ath = token.get("ath", 0)
-        current = token.get("price", 0)
-        if ath == 0:
-            return False
-        dip_percent = ((ath - current) / ath) * 100
-        return dip_percent >= GRADUATED_FILTERS["price_dip_pct"]
-    except:
-        return False
+        market_cap = birdeye_data.get("mc", 0)
+        volume = birdeye_data.get("volume24h", 0)
+        price = birdeye_data.get("price_usd", 0)
+        ath = birdeye_data.get("ath", price)
 
-
-def check_volume_spike(token):
-    vol_5min = token.get("volume5m", 0)
-    return vol_5min >= GRADUATED_FILTERS["recent_volume_5m"]
-
-
-def check_new_wallets(token):
-    buyers = token.get("recentBuyers", [])
-    for buyer in buyers:
-        if buyer.get("isNew") and buyer.get("amount", 0) in GRADUATED_FILTERS["min_new_wallet_sol"]:
-            return True
-    return False
-
-
-def apply_graduated_filters(token):
-    try:
-        market_cap = token.get("marketCap", 0)
-        volume = token.get("volume24h", 0)
-        dev_percent = token.get("devHoldingPercent", 100)
-        insider_percent = token.get("insiderPercent", 100)
-        socials = token.get("socials", [])
+        dev_holdings = metadata.get("token_info", {}).get("creator_token_holdings", 100)
+        creators = metadata.get("creators", [])
 
         if market_cap < GRADUATED_FILTERS["market_cap_min"]:
             return False
         if volume < GRADUATED_FILTERS["volume_min"]:
             return False
-        if dev_percent > GRADUATED_FILTERS["dev_max_percent"]:
+        if ath != 0:
+            dip = ((ath - price) / ath) * 100
+            if dip < GRADUATED_FILTERS["price_dip_pct"]:
+                return False
+        if dev_holdings > GRADUATED_FILTERS["dev_max_percent"]:
             return False
-        if insider_percent > GRADUATED_FILTERS["insider_max_percent"]:
-            return False
-        if len(socials) < GRADUATED_FILTERS["min_socials"]:
-            return False
-
-        # Advanced checks (must fulfill all)
-        if not check_volume_spike(token):
-            return False
-        if not has_dipped_from_ath(token):
-            return False
-        if not check_new_wallets(token):
-            return False
-
+        if creators and len(creators) > 1:
+            return False  # Optional: discourage multiple creators
         return True
     except Exception as e:
-        print(f"[ERROR] Graduated filter failed: {e}")
+        print(f"[ERROR] Filter logic failed: {e}")
         return False
 
 
+async def analyze_token(session, mint):
+    try:
+        graduated = await is_graduated_pumpfun(session, mint)
+        if not graduated:
+            return None  # Still on Pump.fun
+
+        birdeye_data = await get_birdeye_data(session, mint)
+        metadata = await get_token_metadata(session, mint)
+
+        if not apply_graduated_filters(birdeye_data, metadata):
+            return None
+
+        return {
+            "mint": mint,
+            "name": birdeye_data.get("name", "Unnamed"),
+            "price": birdeye_data.get("price_usd"),
+            "volume": birdeye_data.get("volume24h"),
+            "market_cap": birdeye_data.get("mc"),
+        }
+    except Exception as e:
+        print(f"[ERROR] Token {mint} failed: {e}")
+        return None
+
+
 async def check_graduated_tokens():
-    tokens = await fetch_graduated_tokens()
-    passed = [t for t in tokens if apply_graduated_filters(t)]
-    print(f"[INFO] Graduated Tokens Passed Filters: {len(passed)}")
-    return passed
-analyze_graduated_tokens = check_graduated_tokens
+    async with aiohttp.ClientSession() as session:
+        pumpfun_tokens = await fetch_recent_pumpfun_tokens(session)
+        tasks = [analyze_token(session, mint) for mint in pumpfun_tokens]
+        results = await asyncio.gather(*tasks)
+        graduated = [r for r in results if r]
+        print(f"[INFO] Graduated Tokens Detected: {len(graduated)}")
+        return graduated
+
 
 # For testing
 if __name__ == "__main__":
-    result = asyncio.run(check_graduated_tokens())
-    for token in result:
-        print(token["address"], token.get("name", "Unnamed"))
+    asyncio.run(check_graduated_tokens())
