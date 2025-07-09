@@ -61,7 +61,6 @@ MC_MAX_TRENDING = int(os.getenv("MC_MAX_TRENDING", 1000000))
 
 TRENDING_FILTERS = {
     "liquidity_min": LIQUIDITY_MIN_TRENDING,
-    "volume_1min_min": VOLUME_1MIN_MIN_TRENDING,
-    "mc_min": MC_MIN_TRENDING,
-    "mc_max": MC_MAX_TRENDING,
+    "volume_5m": VOLUME_1MIN_MIN_TRENDING,  # Reuse same env var for now
+    "market_cap_range": (MC_MIN_TRENDING, MC_MAX_TRENDING),
 }
