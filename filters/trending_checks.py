@@ -4,7 +4,7 @@ import time
 from datetime import datetime, timedelta
 from config import HELIUS_API_KEY, BIRDEYE_API_KEY, SHYFT_API_KEY, TRENDING_FILTERS
 
-HELIUS_NEW_TOKENS_URL = f"https://api.helius.xyz/v0/tokens/recent?api-key={HELIUS_API_KEY}"
+HELIUS_NEW_TOKENS_URL = "https://api.helius.xyz/v0/tokens/recent?api-key={HELIUS_API_KEY}"
 BIRDEYE_TOKEN_INFO_URL = "https://public-api.birdeye.so/public/token/{}"
 SHYFT_HOLDER_COUNT_URL = "https://shyft.to/sol/v1/token/holders?network=mainnet-beta&token={}"  # Optional
 
