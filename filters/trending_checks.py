@@ -8,7 +8,7 @@ HELIUS_NEW_TOKENS_URL = f"https://api.helius.xyz/v0/tokens/recent?api-key={HELIU
 BIRDEYE_TOKEN_INFO_URL = "https://public-api.birdeye.so/public/token/{}"
 SHYFT_HOLDER_COUNT_URL = "https://shyft.to/sol/v1/token/holders?network=mainnet-beta&token={}"  # Optional
 
-async def fetch_new_tokens():
+async def fetch_trending_tokens():
     async with aiohttp.ClientSession() as session:
         async with session.get(HELIUS_NEW_TOKENS_URL) as resp:
             if resp.status != 200:
