@@ -2,7 +2,7 @@
 
 import datetime
 from config import INITIAL_FILTERS
-from bitquery_api import call_bitquery_api
+from utils.bitquery_api import call_bitquery_api
 
 
 BITQUERY_NEW_TOKENS_QUERY = """
