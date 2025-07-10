@@ -1,52 +1,67 @@
-import aiohttp
-import asyncio
-from config import HELIUS_API_KEY, HELIUS_BASE_URL, INITIAL_FILTERS
-
 # filters/initial_checks.py
 
+import datetime
 from config import INITIAL_FILTERS
-import requests
+from bitquery_api import call_bitquery_api
 
-def run_initial_checks(token_data: dict) -> bool:
-    """
-    Apply basic filtering rules to new tokens.
-    """
-    try:
-        if token_data.get("liquidity", 0) < INITIAL_FILTERS["min_liquidity"]:
-            return False
-        if token_data.get("deployer_token_count", 0) > INITIAL_FILTERS["max_deployer_tokens"]:
-            return False
-        if token_data.get("age_minutes", 0) < INITIAL_FILTERS["min_age_minutes"]:
-            return False
-        if token_data.get("market_cap", 0) > INITIAL_FILTERS["max_market_cap"]:
-            return False
-        if token_data.get("volume_5m", 0) < INITIAL_FILTERS["min_volume_5m"]:
-            return False
-        return True
-    except Exception as e:
-        print(f"[initial_checks] Error in check: {e}")
-        return False
 
-PUMPFUN_NEW_TOKENS_URL = "https://pump.fun/api/tokens"
+BITQUERY_NEW_TOKENS_QUERY = """
+query NewTokens {
+  solana {
+    tokens(
+      limit: 50
+      order_by: {block: {height: desc}}
+      where: {
+        mint_timestamp: {since: "10 minutes"}
+        update_authority: {is_not: null}
+      }
+    ) {
+      address
+      name
+      symbol
+      mint_timestamp
+      update_authority
+      supply
+    }
+  }
+}
+"""
+
 
 async def fetch_new_tokens():
-    async with aiohttp.ClientSession() as session:
-        async with session.get(PUMPFUN_NEW_TOKENS_URL) as resp:
-            if resp.status != 200:
-                print(f"[ERROR] Failed to fetch tokens: {resp.status}")
-                return []
-            data = await resp.json()
+    try:
+        result = call_bitquery_api(BITQUERY_NEW_TOKENS_QUERY)
+        if not result or "data" not in result:
+            print("[ERROR] Invalid Bitquery response.")
+            return []
 
-            # Only keep tokens created in the last 10 minutes
-            cutoff = datetime.datetime.utcnow() - datetime.timedelta(minutes=10)
-            new_tokens = []
-            for token in data:
-                created_at = token.get("created_at")
-                if created_at:
-                    created_time = datetime.datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-                    if created_time > cutoff:
-                        new_tokens.append(token)
-            return new_tokens
+        tokens = result["data"]["solana"]["tokens"]
+        new_tokens = []
+
+        for t in tokens:
+            new_tokens.append({
+                "mint": t["address"],
+                "name": t.get("name", "Unnamed"),
+                "symbol": t.get("symbol", ""),
+                "created_at": t["mint_timestamp"],
+                "deployer": t["update_authority"],
+                "supply": t["supply"],
+                # placeholders for compatibility with existing filters:
+                "marketCap": 0,
+                "holderCount": 0,
+                "volume24h": 0,
+                "devHoldingPercent": 0,
+                "buyCount24h": 0,
+                "socials": [],
+            })
+
+        return new_tokens
+
+    except Exception as e:
+        print(f"[ERROR] Bitquery fetch failed: {e}")
+        return []
+
+
 def apply_filters(token):
     try:
         market_cap = token.get("marketCap", 0)
@@ -80,10 +95,3 @@ async def check_new_tokens():
     filtered_tokens = [t for t in raw_tokens if apply_filters(t)]
     print(f"[INFO] New Tokens Passed Initial Filters: {len(filtered_tokens)}")
     return filtered_tokens
-
-
-# For testing
-if __name__ == "__main__":
-    result = asyncio.run(check_new_tokens())
-    for token in result:
-        print(token["address"], token.get("name", "Unnamed"))
