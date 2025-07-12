@@ -77,7 +77,7 @@ async def main():
 
     if TRENDING_FILTERS:
         print("🔥 Scanning Trending Tokens...")
-        tokens += await fetch_trending_tokens()
+        tokens += await fetch_new_tokens()
 
     print(f"✅ {len(tokens)} tokens passed basic filters.")
 
