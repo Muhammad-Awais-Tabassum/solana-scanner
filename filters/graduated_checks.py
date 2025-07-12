@@ -126,8 +126,18 @@ async def analyze_token(session, mint):
 async def check_graduated_tokens():
     print("🔍 Querying Bitquery for graduated tokens...")
     response = call_bitquery_api(GRADUATION_QUERY)
-    if not response:
-        return []
+   
+        if response is None or "data" not in response:
+    print("[ERROR] Bitquery fetch failed: no 'data' in response.")
+    return []
+
+try:
+    tokens = response['data']['solana']['something']
+except (KeyError, TypeError) as e:
+    print(f"[ERROR] Failed to parse Bitquery response: {e}")
+    print("[DEBUG] Full response:", response)
+    return [] 
+    
 
     mints = extract_mints_from_response(response)
     print(f"[INFO] {len(mints)} potential graduated tokens found.")
