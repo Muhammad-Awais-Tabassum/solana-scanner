@@ -16,11 +16,26 @@ def call_bitquery_api(query, variables=None):
         "variables": variables or {}
     }
 
-    response = requests.post(url, json=payload, headers=headers)
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        response.raise_for_status()  # raises error for 4xx/5xx
 
-    if response.status_code == 200:
-        return response.json()
-    else:
-        print(f"[ERROR] Bitquery API returned status {response.status_code}")
-        print(response.text)
+        data = response.json()
+
+        # 🔍 Debugging: check if 'data' is missing
+        if not data or "data" not in data:
+            print("[ERROR] Bitquery response missing 'data' field.")
+            print("[DEBUG] Full Bitquery response:", data)
+            return None
+
+        return data
+
+    except requests.exceptions.RequestException as e:
+        print(f"[ERROR] Exception during Bitquery request: {e}")
+        print("[DEBUG] Request payload:", payload)
+        return None
+
+    except ValueError as e:
+        print(f"[ERROR] Failed to decode Bitquery JSON response: {e}")
+        print("[DEBUG] Raw response text:", response.text)
         return None
