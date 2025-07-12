@@ -127,7 +127,7 @@ async def check_graduated_tokens():
     print("🔍 Querying Bitquery for graduated tokens...")
     response = call_bitquery_api(GRADUATION_QUERY)
    
-        if response is None or "data" not in response:
+    if response is None or "data" not in response:
     print("[ERROR] Bitquery fetch failed: no 'data' in response.")
     return []
 
