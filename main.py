@@ -3,7 +3,7 @@
 import asyncio
 from filters.initial_checks import check_new_tokens
 from filters.graduated_checks import check_graduated_tokens
-from filters.trending_checks import fetch_trending_tokens
+from filters.trending_checks import fetch_new_tokens
 from filters.extra_heuristics import apply_extra_heuristics
 
 from analyzer.deployer_history import check_deployer_history
