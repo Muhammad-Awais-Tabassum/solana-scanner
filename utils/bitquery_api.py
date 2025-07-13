@@ -7,7 +7,7 @@ def call_bitquery_api(query, variables=None):
     url = "https://streaming.bitquery.io/graphql"
 
     headers = {
-        'Authorization': f'Bearer {ory_at_rXPN_9zkuWmM6l0s0nXN-0bElrNmkk132aI9y76VdTE.9atktM_b4Vu2oh25vi_RUK0ttEk-h2_GjJ7YipeRqYA}',
+        'Authorization': f'Bearer ory_at_rXPN_9zkuWmM6l0s0nXN-0bElrNmkk132aI9y76VdTE.9atktM_b4Vu2oh25vi_RUK0ttEk-h2_GjJ7YipeRqYA',
         'Content-Type': 'application/json'
     }
 
