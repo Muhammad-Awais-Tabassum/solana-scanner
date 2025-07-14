@@ -10,7 +10,7 @@ HELIUS_BASE_URL = os.getenv("HELIUS_BASE_URL", "https://api.helius.xyz/v0")
 BIRDEYE_API_KEY = os.getenv("BIRDEYE_API_KEY")
 SHYFT_API_KEY = os.getenv("SHYFT_API_KEY")
 TWITTER_BEARER_TOKEN = os.getenv("TWITTER_BEARER_TOKEN")
-BITQUERY_API_KEY = "ory_at_rXPN_9zkuWmM6l0s0nXN-0bElrNmkk132aI9y76VdTE.9atktM_b4Vu2oh25vi_RUK0ttEk-h2_GjJ7YipeRqYA"
+BITQUERY_API_KEY = os.getenv("BITQUERY_API_KEY")  # FIXED
 
 # 📬 Telegram
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
