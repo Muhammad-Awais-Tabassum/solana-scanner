@@ -1,4 +1,4 @@
-# bitquery_api.py
+#bitquery_api.py
 
 import requests
 from config import BITQUERY_API_KEY
