@@ -8,7 +8,7 @@ from config import (
     BIRDEYE_API_KEY,
     SHYFT_API_KEY,
 )
-from utils.bitquery_api import call_bitquery_api
+from utils.bitquery_api import call_bitquery_api  # ✅ This is ASYNC!
 
 BIRDEYE_TOKEN_INFO = "https://public-api.birdeye.so/public/token/"
 SHYFT_METADATA_URL = "https://api.shyft.to/sol/v1/token/get_info?network=mainnet&token="
@@ -55,6 +55,7 @@ GRADUATION_QUERY = """
   }
 }
 """
+
 def get_time_range(minutes_back=60, min_seconds_ago=30):
     """Generate time range for querying graduated tokens"""
     now = datetime.utcnow()
@@ -224,9 +225,8 @@ async def check_graduated_tokens():
         # Build query with time variables (string replacement)
         query_with_vars = GRADUATION_QUERY.replace("$time_start", time_start).replace("$time_end", time_end)
         
-        # ✅ FIXED - Run sync API call in executor to avoid blocking
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(None, call_bitquery_api, query_with_vars)
+        # ✅ FIXED - Properly await the async call_bitquery_api function
+        response = await call_bitquery_api(query_with_vars)
         
         if response is None:
             print("[ERROR] Bitquery returned None response")
@@ -282,8 +282,10 @@ async def check_graduated_tokens():
 
     except Exception as e:
         print(f"[ERROR] check_graduated_tokens failed: {e}")
+        import traceback
+        traceback.print_exc()
         return []
-        # ✅ Test function
+# ✅ Test function
 async def test_graduation_check():
     """Test function to verify graduation detection"""
     print("🧪 Testing graduation detection...")
