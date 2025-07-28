@@ -16,9 +16,9 @@ SHYFT_METADATA_URL = "https://api.shyft.to/sol/v1/token/get_info?network=mainnet
 HEADERS_BIRDEYE = {"X-API-KEY": BIRDEYE_API_KEY}
 HEADERS_SHYFT = {"x-api-key": SHYFT_API_KEY}
 
-# Updated real-time graduation query using DEXPools
+# ✅ FIXED - Updated graduation query (no GraphQL variables, direct string replacement)
 GRADUATION_QUERY = """
-query TokensGraduatedTimeRange($time_start: DateTime, $time_end: DateTime) {
+{
   Solana {
     DEXPools(
       where: {
@@ -32,8 +32,8 @@ query TokensGraduatedTimeRange($time_start: DateTime, $time_end: DateTime) {
         }
         Block: {
           Time: {
-            since: $time_start
-            till: $time_end
+            since: "$time_start"
+            till: "$time_end"
           }
         }
         Transaction: {Result: {Success: true}}
@@ -55,107 +55,242 @@ query TokensGraduatedTimeRange($time_start: DateTime, $time_end: DateTime) {
   }
 }
 """
-
 def get_time_range(minutes_back=60, min_seconds_ago=30):
+    """Generate time range for querying graduated tokens"""
     now = datetime.utcnow()
     time_start = now - timedelta(minutes=minutes_back)
     time_end = now - timedelta(seconds=min_seconds_ago)
     return time_start.isoformat() + "Z", time_end.isoformat() + "Z"
 
 def extract_mints_from_response(data):
+    """Extract mint addresses from Bitquery response"""
     try:
+        if not data or "data" not in data:
+            print("[ERROR] Invalid Bitquery response structure")
+            return []
+            
+        if "Solana" not in data["data"]:
+            print("[ERROR] No Solana data in response")
+            return []
+            
+        if "DEXPools" not in data["data"]["Solana"]:
+            print("[ERROR] No DEXPools data in response")
+            return []
+
         dex_pools = data["data"]["Solana"]["DEXPools"]
         mints = []
+        
         for pool in dex_pools:
-            mint = pool["Pool"]["Market"]["BaseCurrency"]["MintAddress"]
-            if mint:
-                mints.append(mint)
-        return list(set(mints))
+            try:
+                mint = pool["Pool"]["Market"]["BaseCurrency"]["MintAddress"]
+                if mint and mint != "":
+                    mints.append(mint)
+            except KeyError as e:
+                print(f"[WARN] Missing field in pool data: {e}")
+                continue
+                
+        # Remove duplicates
+        unique_mints = list(set(mints))
+        print(f"[INFO] Extracted {len(unique_mints)} unique mint addresses")
+        return unique_mints
+        
     except Exception as e:
         print(f"[ERROR] Failed to extract mints: {e}")
         return []
-
 async def get_birdeye_data(session, mint):
-    async with session.get(BIRDEYE_TOKEN_INFO + mint, headers=HEADERS_BIRDEYE) as resp:
-        if resp.status != 200:
-            return {}
-        data = await resp.json()
-        return data.get("data", {})
+    """Fetch token data from Birdeye API"""
+    try:
+        url = BIRDEYE_TOKEN_INFO + mint
+        async with session.get(url, headers=HEADERS_BIRDEYE) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                return data.get("data", {})
+            elif resp.status == 429:
+                print(f"[WARN] Birdeye rate limit for {mint}")
+                await asyncio.sleep(1)  # Rate limit delay
+                return {}
+            else:
+                print(f"[WARN] Birdeye API error {resp.status} for {mint}")
+                return {}
+    except Exception as e:
+        print(f"[ERROR] Birdeye API failed for {mint}: {e}")
+        return {}
 
 async def get_token_metadata(session, mint):
-    async with session.get(SHYFT_METADATA_URL + mint, headers=HEADERS_SHYFT) as resp:
-        if resp.status != 200:
-            return {}
-        result = await resp.json()
-        return result.get("result", {})
+    """Fetch token metadata from Shyft API"""
+    try:
+        url = SHYFT_METADATA_URL + mint
+        async with session.get(url, headers=HEADERS_SHYFT) as resp:
+            if resp.status == 200:
+                result = await resp.json()
+                return result.get("result", {})
+            elif resp.status == 429:
+                print(f"[WARN] Shyft rate limit for {mint}")
+                await asyncio.sleep(1)  # Rate limit delay
+                return {}
+            else:
+                print(f"[WARN] Shyft API error {resp.status} for {mint}")
+                return {}
+    except Exception as e:
+        print(f"[ERROR] Shyft API failed for {mint}: {e}")
+        return {}
 
 def apply_graduated_filters(birdeye_data, metadata):
+    """Apply filters to graduated tokens"""
     try:
+        # Extract data with defaults
         market_cap = birdeye_data.get("mc", 0)
         volume = birdeye_data.get("volume24h", 0)
         price = birdeye_data.get("price_usd", 0)
-        ath = birdeye_data.get("ath", price)
+        ath = birdeye_data.get("ath", price if price > 0 else 1)
 
-        dev_holdings = metadata.get("token_info", {}).get("creator_token_holdings", 100)
+        # Metadata checks
+        token_info = metadata.get("token_info", {})
+        dev_holdings = token_info.get("creator_token_holdings", 100)
         creators = metadata.get("creators", [])
 
+        # Apply filters
         if market_cap < GRADUATED_FILTERS["market_cap_min"]:
-            return False
+            return False, f"Market cap too low: ${market_cap:,.0f}"
+            
         if volume < GRADUATED_FILTERS["volume_min"]:
-            return False
-        if ath != 0:
+            return False, f"Volume too low: ${volume:,.0f}"
+            
+        if price > 0 and ath > 0:
             dip = ((ath - price) / ath) * 100
             if dip < GRADUATED_FILTERS["price_dip_pct"]:
-                return False
+                return False, f"Not enough price dip: {dip:.1f}%"
+                
         if dev_holdings > GRADUATED_FILTERS["dev_max_percent"]:
-            return False
-        if creators and len(creators) > 1:
-            return False
-        return True
+            return False, f"Dev holdings too high: {dev_holdings}%"
+            
+        if len(creators) > 1:
+            return False, f"Too many creators: {len(creators)}"
+
+        return True, "Passed all filters"
+        
     except Exception as e:
         print(f"[ERROR] Filter logic failed: {e}")
-        return False
-
+        return False, f"Filter error: {e}"
 async def analyze_token(session, mint):
+    """Analyze a single token and apply filters"""
     try:
-        birdeye_data = await get_birdeye_data(session, mint)
-        metadata = await get_token_metadata(session, mint)
+        print(f"[INFO] Analyzing token: {mint}")
+        
+        # Fetch data from both APIs
+        birdeye_task = get_birdeye_data(session, mint)
+        metadata_task = get_token_metadata(session, mint)
+        
+        birdeye_data, metadata = await asyncio.gather(birdeye_task, metadata_task)
 
-        if not apply_graduated_filters(birdeye_data, metadata):
+        # Apply filters
+        passed, reason = apply_graduated_filters(birdeye_data, metadata)
+        
+        if not passed:
+            print(f"[FILTER] {mint} rejected: {reason}")
             return None
 
-        return {
+        # Build result
+        token_data = {
             "mint": mint,
             "name": birdeye_data.get("name", "Unnamed"),
-            "price": birdeye_data.get("price_usd"),
-            "volume": birdeye_data.get("volume24h"),
-            "market_cap": birdeye_data.get("mc"),
+            "symbol": birdeye_data.get("symbol", ""),
+            "price": birdeye_data.get("price_usd", 0),
+            "volume": birdeye_data.get("volume24h", 0),
+            "market_cap": birdeye_data.get("mc", 0),
+            "ath": birdeye_data.get("ath", 0),
+            "liquidity": birdeye_data.get("liquidity", 0),
+            "dev_holdings": metadata.get("token_info", {}).get("creator_token_holdings", 0),
+            "creators_count": len(metadata.get("creators", [])),
+            "reason": reason
         }
+        
+        print(f"[PASS] {mint} ({token_data['name']}) - ${token_data['market_cap']:,.0f} MC")
+        return token_data
+        
     except Exception as e:
-        print(f"[ERROR] Token {mint} failed: {e}")
+        print(f"[ERROR] Token {mint} analysis failed: {e}")
         return None
 
 async def check_graduated_tokens():
+    """Main function to check for graduated tokens"""
     print("🔍 Querying Bitquery for graduated tokens...")
     
-    time_start, time_end = get_time_range()
-    variables = {"time_start": time_start, "time_end": time_end}
-    
-    response = call_bitquery_api(GRADUATION_QUERY, variables)
-    if response is None or "data" not in response:
-        print("[ERROR] Bitquery fetch failed.")
+    try:
+        # Get time range
+        time_start, time_end = get_time_range(minutes_back=60, min_seconds_ago=30)
+        print(f"[INFO] Searching from {time_start} to {time_end}")
+        
+        # Build query with time variables (string replacement)
+        query_with_vars = GRADUATION_QUERY.replace("$time_start", time_start).replace("$time_end", time_end)
+        
+        # ✅ FIXED - Run sync API call in executor to avoid blocking
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(None, call_bitquery_api, query_with_vars)
+        
+        if response is None:
+            print("[ERROR] Bitquery returned None response")
+            return []
+
+        # Extract mint addresses
+        mints = extract_mints_from_response(response)
+        
+        if not mints:
+            print("[INFO] No graduated tokens found in time range")
+            return []
+            
+        print(f"[INFO] Found {len(mints)} potential graduated tokens")
+
+        # Analyze tokens concurrently with rate limiting
+        async with aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=30),
+            connector=aiohttp.TCPConnector(limit=10)  # Limit concurrent connections
+        ) as session:
+            
+            # Process tokens in batches to avoid rate limits
+            batch_size = 5
+            all_results = []
+            
+            for i in range(0, len(mints), batch_size):
+                batch = mints[i:i + batch_size]
+                print(f"[INFO] Processing batch {i//batch_size + 1}/{(len(mints)-1)//batch_size + 1}")
+                
+                tasks = [analyze_token(session, mint) for mint in batch]
+                batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                # Filter out None results and exceptions
+                valid_results = [
+                    r for r in batch_results 
+                    if r is not None and not isinstance(r, Exception)
+                ]
+                all_results.extend(valid_results)
+                
+                # Small delay between batches
+                if i + batch_size < len(mints):
+                    await asyncio.sleep(0.5)
+
+        graduated_tokens = all_results
+        print(f"✅ {len(graduated_tokens)} graduated tokens passed all filters")
+        
+        # Print summary
+        if graduated_tokens:
+            print("\n🎯 GRADUATED TOKENS FOUND:")
+            for token in graduated_tokens:
+                print(f"  • {token['name']} ({token['symbol']}) - ${token['market_cap']:,.0f} MC")
+        
+        return graduated_tokens
+
+    except Exception as e:
+        print(f"[ERROR] check_graduated_tokens failed: {e}")
         return []
+        # ✅ Test function
+async def test_graduation_check():
+    """Test function to verify graduation detection"""
+    print("🧪 Testing graduation detection...")
+    tokens = await check_graduated_tokens()
+    print(f"✅ Test complete. Found {len(tokens)} graduated tokens.")
+    return tokens
 
-    mints = extract_mints_from_response(response)
-    print(f"[INFO] {len(mints)} potential graduated tokens found.")
-
-    async with aiohttp.ClientSession() as session:
-        tasks = [analyze_token(session, mint) for mint in mints]
-        results = await asyncio.gather(*tasks)
-        graduated = [r for r in results if r]
-        print(f"[INFO] {len(graduated)} graduated tokens passed all filters.")
-        return graduated
-
-# Optional test
+# Optional direct execution
 if __name__ == "__main__":
-    asyncio.run(check_graduated_tokens())
+    asyncio.run(test_graduation_check())
