@@ -4,65 +4,144 @@ import datetime
 from config import INITIAL_FILTERS
 from utils.bitquery_api import call_bitquery_api
 
-
-BITQUERY_NEW_TOKENS_QUERY = """
-query NewTokens {
-  solana {
-    tokens(
-      limit: 50
-      order_by: {block: {height: desc}}
+# ✅ WORKING Bitquery query for new Pump.Fun tokens
+BITQUERY_NEW_PUMPFUN_TOKENS_QUERY = """
+query NewPumpFunTokens {
+  Solana(network: solana) {
+    Instructions(
+      limit: {count: 50}
+      orderBy: {descending: Block_Time}
       where: {
-        mint_timestamp: {since: "10 minutes"}
-        update_authority: {is_not: null}
+        Instruction: {
+          Program: {
+            Name: {is: "pump"}
+            Method: {is: "create"}
+          }
+        }
+        Block: {
+          Time: {since: "2024-12-20T10:00:00Z"}
+        }
       }
     ) {
-      address
-      name
-      symbol
-      mint_timestamp
-      update_authority
-      supply
+      Block {
+        Time
+      }
+      Transaction {
+        Signer
+        Signature
+      }
+      Instruction {
+        Accounts {
+          Address
+        }
+        Program {
+          Arguments {
+            Name
+            Value {
+              ... on Solana_ABI_Json_Value_Arg {
+                json
+              }
+              ... on Solana_ABI_String_Value_Arg {
+                string
+              }
+            }
+          }
+        }
+      }
     }
   }
 }
 """
 
-
 async def fetch_new_tokens():
+    """Fetch new Pump.Fun tokens using correct Bitquery API"""
     try:
-        result = call_bitquery_api(BITQUERY_NEW_TOKENS_QUERY)
-        if not result or "data" not in result:
-            print("[ERROR] Invalid Bitquery response.")
+        print("🔍 Querying Bitquery for new Pump.Fun tokens...")
+        
+        # ✅ Make sure this is awaited if call_bitquery_api is async
+        result = await call_bitquery_api(BITQUERY_NEW_PUMPFUN_TOKENS_QUERY)
+        
+        # ✅ Proper error checking
+        if not result:
+            print("[ERROR] Bitquery returned None response")
+            return []
+            
+        if "data" not in result:
+            print(f"[ERROR] Invalid Bitquery response: {result}")
+            return []
+            
+        if "Solana" not in result["data"]:
+            print(f"[ERROR] No 'Solana' field in response: {result['data']}")
+            return []
+            
+        if "Instructions" not in result["data"]["Solana"]:
+            print(f"[ERROR] No 'Instructions' field in response: {result['data']['Solana']}")
             return []
 
-        tokens = result["data"]["solana"]["tokens"]
+        instructions = result["data"]["Solana"]["Instructions"]
+        print(f"✅ Found {len(instructions)} token creation instructions")
+        
         new_tokens = []
 
-        for t in tokens:
-            new_tokens.append({
-                "mint": t["address"],
-                "name": t.get("name", "Unnamed"),
-                "symbol": t.get("symbol", ""),
-                "created_at": t["mint_timestamp"],
-                "deployer": t["update_authority"],
-                "supply": t["supply"],
-                # placeholders for compatibility with existing filters:
-                "marketCap": 0,
-                "holderCount": 0,
-                "volume24h": 0,
-                "devHoldingPercent": 0,
-                "buyCount24h": 0,
-                "socials": [],
-            })
+        for instruction in instructions:
+            try:
+                # Extract token mint address (first account is usually the mint)
+                accounts = instruction.get("Instruction", {}).get("Accounts", [])
+                if not accounts:
+                    continue
+                    
+                mint_address = accounts[0].get("Address")
+                if not mint_address:
+                    continue
 
+                # Extract token metadata from arguments
+                args = instruction.get("Instruction", {}).get("Program", {}).get("Arguments", [])
+                name = "Unnamed"
+                symbol = ""
+                
+                for arg in args:
+                    if arg.get("Name") == "name":
+                        value = arg.get("Value", {})
+                        if "string" in value:
+                            name = value["string"]
+                        elif "json" in value:
+                            name = str(value["json"])
+                    elif arg.get("Name") == "symbol":
+                        value = arg.get("Value", {})
+                        if "string" in value:
+                            symbol = value["string"]
+                        elif "json" in value:
+                            symbol = str(value["json"])
+
+                new_tokens.append({
+                    "mint": mint_address,
+                    "name": name,
+                    "symbol": symbol,
+                    "created_at": instruction.get("Block", {}).get("Time"),
+                    "deployer": instruction.get("Transaction", {}).get("Signer"),
+                    "supply": 1000000000,  # Standard Pump.Fun supply
+                    # Placeholders for compatibility
+                    "marketCap": 0,
+                    "holderCount": 0,
+                    "volume24h": 0,
+                    "devHoldingPercent": 0,
+                    "buyCount24h": 0,
+                    "socials": [],
+                })
+
+            except Exception as e:
+                print(f"[WARN] Failed to parse instruction: {e}")
+                continue
+
+        print(f"✅ Parsed {len(new_tokens)} new Pump.Fun tokens")
         return new_tokens
 
     except Exception as e:
         print(f"[ERROR] Bitquery fetch failed: {e}")
         return []
 
-
 def apply_filters(token):
+    """Apply initial filters to tokens"""
     try:
         market_cap = token.get("marketCap", 0)
         holders = token.get("holderCount", 0)
@@ -89,8 +168,8 @@ def apply_filters(token):
         print(f"[ERROR] Filtering token failed: {e}")
         return False
 
-
 async def check_new_tokens():
+    """Main function to check new tokens"""
     raw_tokens = await fetch_new_tokens()
     filtered_tokens = [t for t in raw_tokens if apply_filters(t)]
     print(f"[INFO] New Tokens Passed Initial Filters: {len(filtered_tokens)}")
