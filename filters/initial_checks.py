@@ -150,13 +150,13 @@ def apply_filters(token):
         buys = token.get("buyCount24h", 0)
         socials = token.get("socials", [])
 
-        if market_cap < INITIAL_FILTERS["market_cap_min"]:
+        if market_cap < INITIAL_FILTERS["min_marketcap"]:
             return False
         if holders < INITIAL_FILTERS["min_holders"]:
             return False
-        if volume < INITIAL_FILTERS["volume_min"]:
+        if volume < INITIAL_FILTERS["min_volume"]:
             return False
-        if dev_percent > INITIAL_FILTERS["dev_max_percent"]:
+        if dev_percent > INITIAL_FILTERS["max_dev_holding"]:
             return False
         if buys < INITIAL_FILTERS["min_buys"]:
             return False
