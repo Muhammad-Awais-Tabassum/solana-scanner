@@ -139,37 +139,66 @@ async def get_token_metadata(session, mint):
 def apply_graduated_filters(birdeye_data, metadata):
     """Apply filters to graduated tokens"""
     try:
-        # Extract data with defaults
+        # Extract Birdeye data
         market_cap = birdeye_data.get("mc", 0)
-        volume = birdeye_data.get("volume24h", 0)
+        volume_24h = birdeye_data.get("volume24h", 0)
+        volume_1h = birdeye_data.get("volume1h", 0)
         price = birdeye_data.get("price_usd", 0)
-        ath = birdeye_data.get("ath", price if price > 0 else 1)
+        liquidity = birdeye_data.get("liquidity", 0)
 
-        # Metadata checks
-        token_info = metadata.get("token_info", {})
+        # Extract Shyft metadata
+        token_info = metadata.get("token_info", {}) or {}
         dev_holdings = token_info.get("creator_token_holdings", 100)
         creators = metadata.get("creators", [])
+        freeze_authority = token_info.get("freeze_authority", "")
+        update_authority = token_info.get("update_authority", "")
+        is_mutable = token_info.get("is_mutable", True)
 
-        # Apply filters
+        # Token distribution check
+        top_holders = token_info.get("top_holders", [])
+        holder_concentration = (
+            sum(h.get("amount", 0) for h in top_holders[:5]) / token_info.get("supply", 1)
+            if top_holders and token_info.get("supply") else 1.0
+        )
+
+        # 1. Market cap check
         if market_cap < GRADUATED_FILTERS["min_marketcap"]:
             return False, f"Market cap too low: ${market_cap:,.0f}"
-            
-        if volume < GRADUATED_FILTERS["min_volume"]:
-            return False, f"Volume too low: ${volume:,.0f}"
-            
-        if price > 0 and ath > 0:
-            dip = ((ath - price) / ath) * 100
-            if dip < GRADUATED_FILTERS["dip_from_ath_threshold"]:
-                return False, f"Not enough price dip: {dip:.1f}%"
-                
+
+        # 2. Volume check
+        if volume_24h < GRADUATED_FILTERS["min_volume"]:
+            return False, f"Volume too low: ${volume_24h:,.0f}"
+
+        # 3. Volume stability (ensure some recent activity)
+        if volume_1h and volume_1h < (0.05 * volume_24h):
+            return False, f"Low recent trading activity (1h vol: ${volume_1h:,.0f})"
+
+        # 4. Liquidity check
+        if liquidity < GRADUATED_FILTERS.get("min_liquidity", 1000):
+            return False, f"Liquidity too low: ${liquidity:,.0f}"
+
+        # 5. Dev holding check
         if dev_holdings > GRADUATED_FILTERS["max_dev_holding"]:
-            return False, f"Dev holdings too high: {dev_holdings}%"
-            
+            return False, f"Dev holdings too high: {dev_holdings:.1f}%"
+
+        # 6. Creator count check
         if len(creators) > 1:
             return False, f"Too many creators: {len(creators)}"
 
+        # 7. Safety checks
+        if freeze_authority:
+            return False, f"Freeze authority not revoked"
+        if update_authority:
+            return False, f"Update authority not revoked"
+        if is_mutable:
+            return False, f"Token is still mutable"
+
+        # 8. Distribution check
+        if holder_concentration > 0.5:
+            return False, f"Top holders control too much supply: {holder_concentration:.1%}"
+
         return True, "Passed all filters"
-        
+
     except Exception as e:
         print(f"[ERROR] Filter logic failed: {e}")
         return False, f"Filter error: {e}"
