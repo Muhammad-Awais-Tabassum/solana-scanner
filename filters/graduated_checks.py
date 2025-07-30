@@ -151,18 +151,18 @@ def apply_graduated_filters(birdeye_data, metadata):
         creators = metadata.get("creators", [])
 
         # Apply filters
-        if market_cap < GRADUATED_FILTERS["market_cap_min"]:
+        if market_cap < GRADUATED_FILTERS["min_marketcap"]:
             return False, f"Market cap too low: ${market_cap:,.0f}"
             
-        if volume < GRADUATED_FILTERS["volume_min"]:
+        if volume < GRADUATED_FILTERS["min_volume"]:
             return False, f"Volume too low: ${volume:,.0f}"
             
         if price > 0 and ath > 0:
             dip = ((ath - price) / ath) * 100
-            if dip < GRADUATED_FILTERS["price_dip_pct"]:
+            if dip < GRADUATED_FILTERS["dip_from_ath_threshold"]:
                 return False, f"Not enough price dip: {dip:.1f}%"
                 
-        if dev_holdings > GRADUATED_FILTERS["dev_max_percent"]:
+        if dev_holdings > GRADUATED_FILTERS["max_dev_holding"]:
             return False, f"Dev holdings too high: {dev_holdings}%"
             
         if len(creators) > 1:
