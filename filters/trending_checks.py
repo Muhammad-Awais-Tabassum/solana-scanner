@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timedelta
 import json
 
-from config import BITQUERY_AUTH_TOKEN, TRENDING_FILTERS
+from config import BITQUERY_API_KEY, TRENDING_FILTERS
 from filters.extra_heuristics import apply_extra_heuristics
 from utils.api_helpers import get_token_holders
 
