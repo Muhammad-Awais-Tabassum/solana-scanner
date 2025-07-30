@@ -13,8 +13,8 @@ async def call_bitquery_api(query, variables=None):
     print(f"[DEBUG] API Key length: {len(BITQUERY_API_KEY) if BITQUERY_API_KEY else 0}")
     
     headers = {
-        "Content-Type": "application/json",
-        "X-API-KEY": BITQUERY_API_KEY,
+    'Content-Type': 'application/json', 
+    'Authorization': f'Bearer {BITQUERY_API_KEY}'
     }
     
     payload = {"query": query}
