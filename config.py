@@ -11,7 +11,7 @@ BIRDEYE_API_KEY = os.getenv("BIRDEYE_API_KEY")
 SHYFT_API_KEY = os.getenv("SHYFT_API_KEY")
 TWITTER_BEARER_TOKEN = os.getenv("TWITTER_BEARER_TOKEN")
 BITQUERY_API_KEY = os.getenv("BITQUERY_API_KEY")  # FIXED
-BITQUERY_API_URL = "https://streaming.bitquery.io/graphql"
+BITQUERY_API_URL = "https://streaming.bitquery.io/eap"
 BITQUERY_API_KEY = "ory_at_-e7r82gGAfdBKLDsK9g9-j3Q9IXWQtiaga6zCxskg9s.UvgBu00e9mzedi9eMiWnIACKF7-SCtkjkVDR3fimmyM"
 # 📬 Telegram
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
