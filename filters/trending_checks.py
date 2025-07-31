@@ -4,7 +4,13 @@ import logging
 from datetime import datetime, timedelta
 import json
 
-from config import BITQUERY_API_KEY, TRENDING_FILTERS
+from config import (
+    BITQUERY_API_KEY,
+    LIQUIDITY_MIN_TRENDING,
+    VOLUME_1MIN_MIN_TRENDING, 
+    MC_MIN_TRENDING,
+    MC_MAX_TRENDING
+)
 from filters.extra_heuristics import apply_extra_heuristics
 from utils.api_helpers import get_token_holders
 
@@ -14,7 +20,7 @@ BITQUERY_URL = "https://streaming.bitquery.io/graphql"
 async def fetch_trending_tokens_bitquery():
     """Fetch trending tokens using Bitquery GraphQL"""
     
-    # Calculate time 1 hour ago
+    # Calculate time 1 hour ago for trending detection
     time_1h_ago = (datetime.utcnow() - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
     
     query = """
@@ -47,6 +53,28 @@ async def fetch_trending_tokens_bitquery():
                     Currency: {
                       MintAddress: {
                         is: "So11111111111111111111111111111111111111112"
+                      }
+                    }
+                  }
+                }
+              }
+              {
+                Trade: {
+                  Currency: {
+                    MintAddress: {
+                      notIn: [
+                        "So11111111111111111111111111111111111111112"
+                        "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+                      ]
+                    }
+                  }
+                  Side: {
+                    Currency: {
+                      MintAddress: {
+                        notIn: [
+                          "So11111111111111111111111111111111111111112"
+                          "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+                        ]
                       }
                     }
                   }
@@ -110,7 +138,7 @@ async def fetch_trending_tokens_bitquery():
             return []
 
 def transform_bitquery_data(bitquery_token):
-    """Convert Bitquery response to your existing token_data format"""
+    """Convert Bitquery response to match your exact format"""
     try:
         trade_data = bitquery_token.get("Trade", {})
         currency = trade_data.get("Currency", {})
@@ -125,23 +153,25 @@ def transform_bitquery_data(bitquery_token):
         
         # Calculate price change approximation (buy/sell pressure)
         buy_sell_ratio = buy_volume / sell_volume if sell_volume > 0 else float('inf')
-        price_change_5m = min(buy_sell_ratio * 10, 100)  # Cap at 100%
+        price_change_1m = min(buy_sell_ratio * 8, 50)  # Adjusted for 1min timeframe
         
-        # Estimate market cap (assuming 1B token supply - adjust as needed)
-        estimated_supply = 1_000_000_000
+        # Estimate market cap (adjust supply estimation as needed)
+        estimated_supply = 1_000_000_000  # Standard assumption - can be refined
         market_cap = latest_price * estimated_supply if latest_price else 0
         
         return {
             "address": currency.get("MintAddress", ""),
             "symbol": currency.get("Symbol", "Unknown"),
             "name": currency.get("Name", "Unknown"),
-            "price_change_5m": price_change_5m,
-            "volume_5m": traded_volume,
-            "liquidity": traded_volume * 2,  # Rough liquidity estimate
+            
+            # Your original format - adjusted for 1min
+            "price_change_1m": price_change_1m,
+            "volume_1m": traded_volume,
+            "liquidity": traded_volume * 1.5,  # Conservative liquidity estimate
             "market_cap": market_cap,
             "latest_price": latest_price,
             
-            # Rich Bitquery metrics
+            # Enhanced Bitquery metrics
             "buyers": buyers,
             "sellers": sellers,
             "makers": bitquery_token.get("makers", 0),
@@ -158,60 +188,62 @@ def transform_bitquery_data(bitquery_token):
 
 
 def compute_trending_score(token):
-    """Enhanced scoring with Bitquery metrics"""
+    """Scoring optimized for your exact filter ranges"""
     try:
-        # Original metrics
-        price_change = token.get("price_change_5m", 0)
-        volume = token.get("volume_5m", 0)
+        # Adjusted for your ranges and 1min timeframe
+        price_change = token.get("price_change_1m", 0)
+        volume = token.get("volume_1m", 0)
         liquidity = token.get("liquidity", 0)
         holders = token.get("holders", 0)
         
-        # New Bitquery metrics
+        # Bitquery metrics
         buyers = token.get("buyers", 0)
         buy_sell_ratio = token.get("buy_sell_ratio", 1)
         total_trades = token.get("total_trades", 0)
-        makers = token.get("makers", 0)
-
-        # Enhanced scoring algorithm
+        
+        # Scoring adjusted for your exact value ranges
         score = (
-            0.25 * price_change +                    # Price momentum
-            0.25 * (volume / 1000) +                 # Volume
-            0.15 * (liquidity / 100) +               # Liquidity  
-            0.10 * (holders / 10) +                  # Holder count
-            0.10 * (buyers / 5) +                    # Unique buyers
-            0.10 * min(buy_sell_ratio, 5) +          # Buy pressure (capped)
-            0.05 * (total_trades / 10)               # Trading activity
+            0.30 * (price_change / 10) +                    # Price momentum (1min)
+            0.25 * ((volume - VOLUME_1MIN_MIN_TRENDING) / 10000) +  # Volume above your min ($5k)
+            0.15 * ((liquidity - LIQUIDITY_MIN_TRENDING) / 20000) +  # Liquidity above your min ($8,250)
+            0.10 * (holders / 20) +                         # Holder growth
+            0.10 * (buyers / 10) +                          # Unique buyers
+            0.10 * min(buy_sell_ratio - 1, 2)               # Buy pressure above 1.0
         )
         
-        return score
+        return max(score, 0)  # Ensure non-negative score
+        
     except Exception as e:
         print(f"[ERROR] Scoring error: {e}")
         return 0
 
+
 def apply_enhanced_filters(token):
-    """Enhanced filters using Bitquery data"""
+    """Enhanced filters using your exact values"""
     try:
-        # Original filters
-        if token.get("liquidity", 0) < TRENDING_FILTERS["liquidity_min"]:
+        # Your original filters with exact values
+        if token.get("liquidity", 0) < LIQUIDITY_MIN_TRENDING:  # $8,250
             return False
-        if token.get("volume_5m", 0) < TRENDING_FILTERS["volume_5m"]:
-            return False
-        
-        cap_range = TRENDING_FILTERS["market_cap_range"]
-        if not (cap_range[0] <= token.get("market_cap", 0) <= cap_range[1]):
+            
+        if token.get("volume_1m", 0) < VOLUME_1MIN_MIN_TRENDING:  # $5,000
             return False
         
-        # New Bitquery-based filters
-        if token.get("buyers", 0) < 10:  # At least 10 unique buyers
+        # Market cap range: $6k - $1M
+        market_cap = token.get("market_cap", 0)
+        if not (MC_MIN_TRENDING <= market_cap <= MC_MAX_TRENDING):
+            return False
+        
+        # Enhanced Bitquery-based filters
+        if token.get("buyers", 0) < 5:  # At least 5 unique buyers
             return False
             
         if token.get("buyers", 0) <= token.get("sellers", 0):  # More buyers than sellers
             return False
             
-        if token.get("buy_sell_ratio", 0) < 1.2:  # Strong buy pressure
+        if token.get("buy_sell_ratio", 0) < 1.1:  # Moderate buy pressure
             return False
             
-        if token.get("total_trades", 0) < 20:  # Minimum trading activity
+        if token.get("total_trades", 0) < 15:  # Minimum trading activity
             return False
             
         return True
@@ -220,9 +252,8 @@ def apply_enhanced_filters(token):
         print(f"[ERROR] Filter error: {e}")
         return False
 
-
 async def scan_trending_tokens():
-    """Main trending scan function using Bitquery"""
+    """Main trending scan function using Bitquery with your exact filters"""
     print("[INFO] Fetching trending tokens from Bitquery...")
     
     bitquery_tokens = await fetch_trending_tokens_bitquery()
@@ -241,7 +272,7 @@ async def scan_trending_tokens():
             if not token_data:
                 continue
             
-            # Add holder count (keep your existing SHYFT integration)
+            # Add holder count (keep your existing SHYFT integration if available)
             try:
                 holders = await get_token_holders(session, token_data["address"])
                 token_data["holders"] = len(holders) if holders else 0
@@ -255,20 +286,24 @@ async def scan_trending_tokens():
                 trending.append(token_data)
                 
                 print(f"[PASS] {token_data['symbol']} | "
+                      f"MC: ${token_data['market_cap']:,.0f} | "
+                      f"Liq: ${token_data['liquidity']:,.0f} | "
+                      f"Vol: ${token_data['volume_1m']:,.0f} | "
                       f"Buyers: {token_data['buyers']} | "
-                      f"B/S Ratio: {token_data['buy_sell_ratio']:.2f} | "
-                      f"Volume: ${token_data['volume_5m']:,.0f}")
+                      f"B/S: {token_data['buy_sell_ratio']:.2f}")
 
     # Sort by score
     trending_sorted = sorted(trending, key=lambda x: x["score"], reverse=True)
     
-    print(f"\n[INFO] {len(trending_sorted)} tokens passed enhanced filters. Top 5:")
+    print(f"\n[INFO] {len(trending_sorted)} tokens passed filters (Liq>${LIQUIDITY_MIN_TRENDING:,}, Vol>${VOLUME_1MIN_MIN_TRENDING:,}, MC${MC_MIN_TRENDING:,}-${MC_MAX_TRENDING:,}). Top 5:")
+    
     for i, t in enumerate(trending_sorted[:5], 1):
         print(f"{i}. {t['symbol']} ({t['name'][:20]}...)")
         print(f"   Score: {t['score']:.2f} | Address: {t['address']}")
-        print(f"   Buyers: {t['buyers']} | Sellers: {t['sellers']} | B/S: {t['buy_sell_ratio']:.2f}")
-        print(f"   Volume: ${t['volume_5m']:,.0f} | Market Cap: ${t['market_cap']:,.0f}")
-        print(f"   Trades: {t['total_trades']} | Price: ${t['latest_price']:.8f}")
+        print(f"   MC: ${t['market_cap']:,.0f} | Liq: ${t['liquidity']:,.0f}")
+        print(f"   Vol(1m): ${t['volume_1m']:,.0f} | Price: ${t['latest_price']:.8f}")
+        print(f"   Buyers: {t['buyers']} | Sellers: {t['sellers']} | B/S Ratio: {t['buy_sell_ratio']:.2f}")
+        print(f"   Trades: {t['total_trades']} | Buys: {t['buys']} | Sells: {t['sells']}")
         print()
 
     return trending_sorted[:5]
