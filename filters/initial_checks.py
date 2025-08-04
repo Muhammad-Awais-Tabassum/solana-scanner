@@ -1,133 +1,132 @@
-import asyncio import aiohttp import time import logging import uuid from config import INITIAL_FILTERS, BITQUERY_WINDOW_MINUTES, BITQUERY_LIMIT, DEFAULT_SUPPLY, MAX_CONCURRENT_ENRICH from utils.bitquery_api import call_bitquery_api_with_retries from utils.query_templates import build_new_pumpfun_tokens_query from functools import lru_cache
+import asyncio import aiohttp import logging import time from config import INITIAL_FILTERS, BITQUERY_LOOKBACK_MINUTES, BITQUERY_LIMIT, DEFAULT_SUPPLY, MAX_CONCURRENT_ENRICH from utils.bitquery_api import call_bitquery_api_with_retries from utils.helpers import generate_request_id from datetime import datetime, timedelta from functools import lru_cache from typing import List, Dict, Any
 
-logger = logging.getLogger(name) logger.setLevel(logging.INFO)
+logger = logging.getLogger(name)
+
+Global seen_mints set to prevent re-fetching
 
 seen_mints = set()
 
-@lru_cache(maxsize=2048) def get_cached_metadata_key(mint): return mint
+Circuit breaker state
 
-async def extract_mint_address(accounts): for acc in accounts: if acc.get("IsWritable") and not acc.get("IsSigner"): return acc.get("Address") return accounts[0].get("Address") if accounts else None
+circuit_breaker_open = False circuit_breaker_reset_time = None CIRCUIT_BREAKER_TIMEOUT = 300  # seconds CIRCUIT_BREAKER_THRESHOLD = 5 circuit_failure_count = 0
 
-def clean_string(val): try: return str(val).replace("\x00", "").strip() except: return ""
+BIRDEYE_URL = "https://public-api.birdeye.so/defi/v3/token/meta-data/single" BIRDEYE_HEADERS = { "accept": "application/json", "x-chain": "solana" }
 
-async def enrich_token_metadata(token, session): mint = token["mint"] if mint in seen_mints: return token
+def build_bitquery_query(since_iso: str, limit: int) -> str: return f""" query NewPumpFunTokens {{ Solana(network: solana) {{ Instructions( limit: {{count: {limit}}} orderBy: {{descending: Block_Time}} where: {{ Instruction: {{ Program: {{ Name: {{is: "pump"}} Method: {{is: "create"}} }} }} Block: {{ Time: {{since: "{since_iso}"}} }} }} ) {{ Block {{ Time }} Transaction {{ Signer Signature }} Instruction {{ Accounts {{ Address IsWritable IsSigner }} Program {{ Arguments {{ Name Value {{ ... on Solana_ABI_Json_Value_Arg {{ json }} ... on Solana_ABI_String_Value_Arg {{ string }} }} }} }} }} }} }} }} """
 
-url = f"https://shyft.to/sol/v1/token/info?network=mainnet-beta&token={mint}"
-headers = {"accept": "application/json"}
+def extract_mint_address(accounts): for account in accounts: addr = account.get("Address") if addr and account.get("IsWritable", False) and not account.get("IsSigner", False): return addr return accounts[0].get("Address") if accounts else None
 
-for attempt in range(3):
+def clean_string(value): if isinstance(value, str): return value.strip() elif isinstance(value, dict): return str(value) return ""
+
+async def enrich_token_metadata(session, token): global circuit_breaker_open, circuit_breaker_reset_time, circuit_failure_count
+
+mint = token["mint"]
+if mint in seen_mints:
+    return token
+
+if circuit_breaker_open and time.time() < circuit_breaker_reset_time:
+    logger.warning("🚫 Circuit breaker active, skipping enrichment for %s", mint)
+    return token
+
+retries = 3
+for attempt in range(retries):
     try:
-        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+        async with session.get(
+            f"{BIRDEYE_URL}?address={mint}",
+            headers=BIRDEYE_HEADERS,
+            timeout=aiohttp.ClientTimeout(total=10)
+        ) as resp:
             if resp.status == 200:
                 data = await resp.json()
-                info = data.get("result", {})
-                token.update({
-                    "marketCap": info.get("market_cap", 0),
-                    "holderCount": info.get("holders", 0),
-                    "volume24h": info.get("volume_24h", 0),
-                    "devHoldingPercent": info.get("ownership", {}).get("owner_percent", 0),
-                    "supply": info.get("circulating_supply", DEFAULT_SUPPLY)
-                })
+                token["marketCap"] = data.get("market_cap", 0)
+                token["volume24h"] = data.get("volume_24h", 0)
+                token["holderCount"] = data.get("holders", 0)
+                token["supply"] = data.get("supply", DEFAULT_SUPPLY)
+                token["symbol"] = data.get("symbol") or token["symbol"]
+                token["name"] = data.get("name") or token["name"]
                 seen_mints.add(mint)
+                circuit_failure_count = 0
                 return token
-            elif resp.status in (429, 500, 502, 503):
-                await asyncio.sleep(0.5 * (attempt + 1))
-    except Exception as e:
-        logger.warning(f"[WARN] SHYFT call failed for {mint} on attempt {attempt+1}: {e}")
-        await asyncio.sleep(0.5 * (attempt + 1))
+            else:
+                logger.warning(f"[WARN] Birdeye failed for {mint}: HTTP {resp.status}")
 
-logger.warning(f"[WARN] Metadata enrichment failed for {mint}, using fallback")
-seen_mints.add(mint)
+    except Exception as e:
+        logger.warning(f"[WARN] Error enriching {mint}: {e}")
+        await asyncio.sleep(2 ** attempt)
+
+circuit_failure_count += 1
+if circuit_failure_count >= CIRCUIT_BREAKER_THRESHOLD:
+    circuit_breaker_open = True
+    circuit_breaker_reset_time = time.time() + CIRCUIT_BREAKER_TIMEOUT
+    logger.error("🚨 Circuit breaker triggered: too many Birdeye failures")
+
 return token
 
-async def enrich_tokens_with_rate_limit(tokens): semaphore = asyncio.Semaphore(MAX_CONCURRENT_ENRICH)
+async def enrich_tokens_with_rate_limit(tokens, max_concurrent=MAX_CONCURRENT_ENRICH): semaphore = asyncio.Semaphore(max_concurrent)
 
 async with aiohttp.ClientSession() as session:
     async def limited_enrich(token):
         async with semaphore:
-            await asyncio.sleep(0.05)  # tune as needed
-            return await enrich_token_metadata(token, session)
+            await asyncio.sleep(0.1)
+            return await enrich_token_metadata(session, token)
 
     return await asyncio.gather(*[limited_enrich(t) for t in tokens])
 
-async def fetch_new_tokens(): start_time = time.time() request_id = str(uuid.uuid4())
+async def fetch_new_tokens(): start_time = time.time() request_id = generate_request_id() since_time = datetime.utcnow() - timedelta(minutes=BITQUERY_LOOKBACK_MINUTES) query = build_bitquery_query(since_time.isoformat(), BITQUERY_LIMIT)
 
-logger.info(f"[{request_id}] 🔍 Fetching new tokens via Bitquery...")
+logger.info(f"🔍 [{request_id}] Querying Bitquery for new Pump.Fun tokens...")
+result = await call_bitquery_api_with_retries(query)
 
-try:
-    query = build_new_pumpfun_tokens_query(BITQUERY_WINDOW_MINUTES, BITQUERY_LIMIT)
-    result = await call_bitquery_api_with_retries(query)
-
-    instructions = result.get("data", {}).get("Solana", {}).get("Instructions", [])
-    logger.info(f"[{request_id}] ✅ Found {len(instructions)} instructions")
-
-    new_tokens = []
-    for instruction in instructions:
-        try:
-            accounts = instruction.get("Instruction", {}).get("Accounts", [])
-            mint_address = await extract_mint_address(accounts)
-            if not mint_address:
-                continue
-
-            args = instruction.get("Instruction", {}).get("Program", {}).get("Arguments", [])
-            name = symbol = ""
-
-            for arg in args:
-                if arg.get("Name") == "name":
-                    val = arg.get("Value", {}).get("string") or arg.get("Value", {}).get("json")
-                    name = clean_string(val)
-                elif arg.get("Name") == "symbol":
-                    val = arg.get("Value", {}).get("string") or arg.get("Value", {}).get("json")
-                    symbol = clean_string(val)
-
-            new_tokens.append({
-                "mint": mint_address,
-                "name": name or "Unnamed",
-                "symbol": symbol,
-                "created_at": instruction.get("Block", {}).get("Time"),
-                "deployer": instruction.get("Transaction", {}).get("Signer"),
-                "supply": DEFAULT_SUPPLY,
-                "marketCap": 0,
-                "holderCount": 0,
-                "volume24h": 0,
-                "devHoldingPercent": 0,
-                "buyCount24h": 0,
-                "socials": [],
-            })
-        except Exception as e:
-            logger.warning(f"[{request_id}] ⚠️ Failed to parse instruction: {e}")
-
-    logger.info(f"[{request_id}] 📊 Success rate: {len(new_tokens)}/{len(instructions)} tokens parsed")
-    enriched_tokens = await enrich_tokens_with_rate_limit(new_tokens)
-
-    enriched_valid = [t for t in enriched_tokens if t.get("marketCap", 0) > 0]
-    logger.info(f"[{request_id}] 🎯 Enrichment rate: {len(enriched_valid)}/{len(new_tokens)} tokens enriched")
-    logger.info(f"[{request_id}] ⏱️ Completed in {time.time() - start_time:.2f}s")
-
-    return enriched_tokens
-except Exception as e:
-    logger.error(f"[{request_id}] ❌ Bitquery fetch failed: {e}")
+if not result or "data" not in result or "Solana" not in result["data"]:
+    logger.error(f"[ERROR] Bitquery response invalid or empty for req {request_id}")
     return []
 
-def apply_filters(token): try: market_cap = token.get("marketCap", 0) holders = token.get("holderCount", 0) volume = token.get("volume24h", 0) dev_percent = token.get("devHoldingPercent", 100) buys = token.get("buyCount24h", 0) socials = token.get("socials", [])
+instructions = result["data"]["Solana"].get("Instructions", [])
+logger.info(f"✅ [{request_id}] Found {len(instructions)} token instructions")
 
-if market_cap < INITIAL_FILTERS["min_marketcap"]:
-        return False
-    if holders < INITIAL_FILTERS["min_holders"]:
-        return False
-    if volume < INITIAL_FILTERS["min_volume"]:
-        return False
-    if dev_percent > INITIAL_FILTERS["max_dev_holding"]:
-        return False
-    if buys < INITIAL_FILTERS["min_buys"]:
-        return False
-    if len(socials) < INITIAL_FILTERS["min_socials"]:
-        return False
+new_tokens = []
+for instruction in instructions:
+    try:
+        accounts = instruction["Instruction"].get("Accounts", [])
+        mint = extract_mint_address(accounts)
+        if not mint:
+            continue
 
-    return True
-except Exception as e:
-    logger.error(f"[ERROR] Filtering token failed: {e}")
-    return False
+        args = instruction["Instruction"].get("Program", {}).get("Arguments", [])
+        name, symbol = "Unnamed", ""
+        for arg in args:
+            val = arg.get("Value", {})
+            if arg["Name"] == "name":
+                name = clean_string(val.get("string") or val.get("json"))
+            elif arg["Name"] == "symbol":
+                symbol = clean_string(val.get("string") or val.get("json"))
 
-async def check_new_tokens(): tokens = await fetch_new_tokens() filtered = [t for t in tokens if apply_filters(t)] logger.info(f"[INFO] ✅ {len(filtered)} tokens passed initial filters") return filtered
+        new_tokens.append({
+            "mint": mint,
+            "name": name,
+            "symbol": symbol,
+            "created_at": instruction["Block"].get("Time"),
+            "deployer": instruction["Transaction"].get("Signer"),
+            "supply": DEFAULT_SUPPLY,
+            "marketCap": 0,
+            "holderCount": 0,
+            "volume24h": 0,
+            "devHoldingPercent": 0,
+            "buyCount24h": 0,
+            "socials": [],
+        })
+
+    except Exception as e:
+        logger.warning(f"[WARN] Parse failure: {e}")
+
+logger.info(f"📊 [{request_id}] Parsed {len(new_tokens)} tokens")
+enriched_tokens = await enrich_tokens_with_rate_limit(new_tokens)
+logger.info(f"🎯 [{request_id}] Enriched {len([t for t in enriched_tokens if t['marketCap'] > 0])}/{len(enriched_tokens)} tokens")
+logger.info(f"⏱️ [{request_id}] Done in {time.time() - start_time:.2f}s")
+
+return enriched_tokens
+
+def apply_filters(token): try: return ( token.get("marketCap", 0) >= INITIAL_FILTERS["min_marketcap"] and token.get("holderCount", 0) >= INITIAL_FILTERS["min_holders"] and token.get("volume24h", 0) >= INITIAL_FILTERS["min_volume"] and token.get("devHoldingPercent", 100) <= INITIAL_FILTERS["max_dev_holding"] and token.get("buyCount24h", 0) >= INITIAL_FILTERS["min_buys"] and len(token.get("socials", [])) >= INITIAL_FILTERS["min_socials"] ) except Exception as e: logger.error(f"[ERROR] Filtering token failed: {e}") return False
+
+async def check_new_tokens(): raw_tokens = await fetch_new_tokens() filtered = [t for t in raw_tokens if apply_filters(t)] logger.info(f"✅ Final Filtered Tokens: {len(filtered)}") return filtered
 
